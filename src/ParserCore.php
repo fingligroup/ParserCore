@@ -9,17 +9,18 @@
  *
  */
 
-namespace app\components\mediasfera;
+namespace fingli\ParserCore;
 
 use app\components\parser\NewsPostItem;
 use app\components\parser\NewsPost;
+use app\components\Helper;
+
 use DateTime;
 use DateTimeZone;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\CssSelector\CssSelectorConverter;
 use Symfony\Component\DomCrawler\UriResolver;
 use yii\base\Exception;
-use app\components\Helper;
 use DateTimeImmutable;
 use DateInterval;
 use wapmorgan\TimeParser\TimeParser;
@@ -78,17 +79,22 @@ use wapmorgan\TimeParser\TimeParser;
 class ParserCore
 {
     // версия ядра (см. Версионирование)
-    private const VERSION = '1.0.0-beta-17';
+    private const VERSION = '1.14.1';
+    // требуемая парсером версия ядра
+    private array $parserCoreVerArr;
     // доступные режимы работы парсера
     private const  MODE_TYPES = ['desktop', 'rss'];
     // путь до папки со вспомогательными файлами
-    private const WORK_DIR = __DIR__ . '/../mediasfera/';
+    private const WORK_DIR = __DIR__ . '/assets/';
     // лимит на кол-во элементов по умолчанию
     private const MAX_ITEMS = 10;
     // максимальный размер дескрипшена
-    private const MAX_DESCRIPTION_LENGTH = 200;
+    private const MAX_DESCRIPTION_LENGTH = 100000;
     // лимит на кол-во элементов
     protected int $itemsLimit = self::MAX_ITEMS;
+    // @todo
+    // лимит передаваемый из вне, когда определена конста CORE_PARSER_DEBUG_EXTERNAL
+    //    public int $itemsLimitChecker;
     // хранение текущей кодировки сайта
     protected string $currentCharset;
     // инфа о запросе
@@ -127,6 +133,8 @@ class ParserCore
     private string $currentElement = 'none';
     // здесь хранится полный html из ->getPage
     private string $currentPageFullHtml;
+    // переменная для хранения режима дебаг
+    private int $debug;
     // протокол и домен
     protected string $siteUrl = '';
     // режим работы парсера
@@ -191,20 +199,23 @@ class ParserCore
         'site'       => [
             // протокол и домен
             // (обязательный)
-            'url'             => '',
+            'url'                         => '',
+
+            // кириллический URL
+            'url_cyrillic'                => 'https://интернет-портал-народнаяинициатива.рф',
 
             // использовать юзер-агенты в http запросах.
             // (можно также попробовать передать значение: "bot", если сайт не парсится)
             // (опционально)
             //            'user_agent'  => 'Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/42.0',
-            'user_agent'      => 'bot',
+            'user_agent'                  => 'bot',
 
             // часовой пояс UTC.
             // Чтобы определить часовой пояс, нужно зайти на https://time.is/Moscow и выбрать ближайший крупный город к которому относится сайт
             // узнать UTC и прописать его в формате +XX00
             // Например, Москва: '+0300', Владивосток: '+1000'
             // (опционально)
-            'time_zone'       => '+0300',
+            'time_zone'                   => '+0300',
 
             // формат даты для HTML витрины и карточки
             // (см. https://www.php.net/manual/ru/datetime.format.php)
@@ -214,14 +225,23 @@ class ParserCore
             // y - год, две цифры
             // H - час
             // i - минуты
-            'date_format'     => 'd.m.Y H:i',
+            'date_format'                 => 'd.m.Y H:i',
 
             // формат даты в RSS
             // (указывать только если он отличается от стандартного D, d M Y H:i:s O!)
-            'date_format_rss' => 'D, d M Y H:i:s O',
+            'date_format_rss'             => 'D, d M Y H:i:s O',
 
             // пауза между запросами в секундах (включается только, если сайт начинает блокировку)
-            'pause'           => 0,
+            'pause'                       => 0,
+
+            // заменяем переводы строк пробелами (есть сайты, где не ставят пробелы после перевода строки)
+            'transform_new_line_to_space' => true,
+
+            // кодировка сайта (если определяется некорректно)
+            'encoding'                    => 'UTF-8',
+
+            // отмена проверки на безопасность SSL со стороны CURL
+            'insecure'                    => true,
         ],
 
         // настройки витрины (режим RSS)
@@ -229,6 +249,9 @@ class ParserCore
             // относительный URL где находится RSS
             // (обязательный)
             'url'                 => '/rss.xml',
+
+            // кодировка, если не utf-8
+            'encoding'            => 'windows-1251',
 
             // css селектор для элемента витрины (желательно от корня)
             // (обязательный)
@@ -258,6 +281,12 @@ class ParserCore
         'list'       => [
             // URL где находится витрина
             'url'                 => '/',
+
+            // URL для навигации по страницам
+            // вместо $page - подставляется номер страницы
+            // например: /vitrina/page/$page
+            // (опциональный)
+            'url-page'            => '/vitrina/page/$page',
 
             // css селектор для контейнера витрины
             //  (обязательный)
@@ -297,6 +326,9 @@ class ParserCore
             // (обязательный)
             'container'           => '',
 
+            // заголовок (если не получилось взять из витрины)
+            'element-title'       => '',
+
             // css-селектор для основного текста
             // (для заполнения модели NewsPostItem)
             // (обязательный)
@@ -321,20 +353,24 @@ class ParserCore
             // (опционально)
             'ignore-selectors'    => '',
 
-            // css-селекторы которые будут вставлятся в начало текста новости element-text (селекторы ищутся от корня)
+            // css-селекторы которые будут вставлятся в начало текста новости element-text (селекторы ищутся от корня, т.е. не зависят от container)
             // (опционально)
             'element-text-before' => '',
+
+            // css-селекторы которые будут вставлятся в конец текста новости element-text (селекторы ищутся от корня, т.е. не зависят от container)
+            // (опционально)
+            'element-text-after'  => '',
+
+            // протокол и домен для карточки элемента
+            // (опциональный)
+            'url'                 => '',
         ]
     ];
 
     public function __construct()
     {
-        if (defined('static::EMULATE_MODE') && static::EMULATE_MODE)
-        {
-            static::showLog('--- Внимание! Включен режим эмуляции http запросов. Реальные запросы не делаются ---', 'warning', true, true);
-        }
-
         // инициализация переменных
+        $this->debug              = $this->getDebug();
         $this->siteUrl            = $this->getSiteUrl();
         $this->mode               = $this->getMode();
         $this->itemsLimit         = $this->getItemsLimit();
@@ -394,15 +430,6 @@ class ParserCore
         // опциональные свойства элемента (date, description) должны быть заполнены хотя бы в одном месте
         if ($this->mode === 'rss')
         {
-            // @deprecated дескрипшен возьмем из тайтла
-            //            if (
-            //                empty($this->config['rss']['element-description']) &&
-            //                empty($this->config['element']['element-description'])
-            //            )
-            //            {
-            //                throw new Exception("Необходимо заполнить element-description или в витрине, или в карточке");
-            //            }
-
             // дата
             if (
                 empty($this->config['rss']['element-date']) &&
@@ -428,17 +455,60 @@ class ParserCore
 
         $this->keysIsNotEmptyInAnotherArray($requiredProps, $props);
 
-        if (0 && 'проверка совместимости с версией ядра')
+        if (1 && 'проверка совместимости с версией ядра')
         {
             $coreVer       = self::getVersionArray(self::VERSION);
             $parserCoreVer = self::getVersionArray(static::FOR_CORE_VERSION);
 
-            if (!($coreVer[0] === $parserCoreVer[0]))
+            $this->parserCoreVerArr = $parserCoreVer;
+
+            if (!($coreVer[0] === $parserCoreVer[0] && $coreVer[1] >= $parserCoreVer[1]))
             {
-                throw new Exception('Несовместимая версия ядра. Обновите, пожалуйста, зависимости через composer update. ' . PHP_EOL . '
-                    Требуется ядро ParserCore' . $parserCoreVer[0]);
+                throw new Exception('Несовместимая версия ядра. Обновите, пожалуйста, зависимости через composer update. ' . PHP_EOL . 'Требуется ядро ParserCore ' . static::FOR_CORE_VERSION . ' (узнать версию ядра можно в режиме дебаг или в константе VERSION файла /vendor/fingli/parser-core/src/ParserCore.php)');
             }
         }
+
+        if (defined('static::EMULATE_MODE') && static::EMULATE_MODE)
+        {
+            static::showLog('--- Внимание! Включен режим эмуляции http запросов. Реальные запросы не делаются ---', 'warning', true, true);
+        }
+    }
+
+    protected function stripTags(string $html, array $allowedTags = [])
+    : string {
+        // удаляем все переводы строк, чтобы поставить свои
+        $html = str_replace("\n", '', $html);
+        $html = str_replace("\r", '', $html);
+
+        // заменяем сдвоенные <br>
+        if ($this->parserCoreVerArr[0] == 1 && $this->parserCoreVerArr[1] >= 11)
+        {
+            $html = str_replace("<br><br>", "\n\n", $html);
+        }
+
+        // прежде, чем вырезать теги, нужно компенсировать между ними пробелы
+        // и в случае разбиения на параграфы добавить
+        $html = str_replace('</div>', ' </div>', $html);
+        $html = str_replace('</p>', " </p>\n\n", $html);
+        $html = str_replace('<br>', " <br>\n", $html);
+        $html = str_replace('<br/>', " <br/>\n", $html);
+        $html = str_replace('</li>', ' </li>', $html);
+        $html = str_replace('</td>', ' </td>', $html);
+
+        // а также заменить переводы строк пробелами, если указано в настройках
+        // для сайтов, которые не ставят пробелы после перевода строки в тексте
+        if (!empty($this->config['site']['transform_new_line_to_space']) && $this->config['site']['transform_new_line_to_space'] === true)
+        {
+            $html = str_replace("\r", ' ', $html);
+            $html = str_replace("\n", ' ', $html);
+        }
+
+        $stripped = strip_tags($html, $allowedTags);
+
+        // сжимаем много пробелов в один
+        $stripped = preg_replace("/[ ]{2,}/", " ", $stripped);
+
+        return $stripped;
     }
 
     /**
@@ -483,21 +553,77 @@ class ParserCore
 
         if (empty($listPageData))
         {
-            throw new Exception('Не удалось получить витрину');
+            throw new Exception('Не удалось получить контент витрины');
         }
 
 
         static::showLog('- разбираем витрину на элементы по CSS-селектору "' . $vitrinaSelector . ' ' . $vitrinaElSelector . '"...');
 
-        if ($this->mode == 'rss')
+
+        // пагинация
+        if ($this->mode != 'rss' && !empty($this->config['list']['url-page']))
         {
-            $elementsData = $this->getElementsDataFromRss($listPageData, $this->config['rss']['element'], 'node', $this->itemsLimit);
+            if (strpos($this->config['list']['url-page'], '$page') === false)
+            {
+                throw new Exception("Указан ['list']['url-page'], но не указан \$page ");
+            }
+
+            $page         = 1;
+            $elementsData = [];
+
+            while ($page < 5)
+            {
+                $pageUrl = $this->getUrl(str_replace('$page', $page, $this->config['list']['url-page']));
+
+                if ($page == 1)
+                {
+                    $elementsDataPage = $this->getElementsDataFromHtml($listPageData, $this->config['list']['container'], $this->config['list']['element'], 'html');
+                }
+                else
+                {
+                    $listPageData     = self::getPage($pageUrl);
+                    $elementsDataPage = $this->getElementsDataFromHtml($listPageData, $this->config['list']['container'], $this->config['list']['element'], 'html');
+                }
+
+                if (!empty($elementsDataPage))
+                {
+                    $elementsData = array_merge($elementsData, $elementsDataPage);
+                }
+                else
+                {
+                    break;
+                }
+
+                if (count($elementsData) >= $this->itemsLimit)
+                {
+                    if ($this->debug >= 1)
+                    {
+                        $elementsData = array_splice($elementsData, 0, $this->itemsLimit);
+                    }
+
+                    break;
+                }
+
+
+                $page++;
+            }
         }
+        // без пагинации
         else
         {
-            $elementsData = $this->getElementsDataFromHtml($listPageData, $this->config['list']['container'], $this->config['list']['element'], 'html');
-            $elementsData = array_splice($elementsData, 0, $this->itemsLimit);
+            if ($this->mode == 'rss')
+            {
+                $elementsData = $this->getElementsDataFromRss($listPageData, $this->config['rss']['element'], 'node', $this->itemsLimit);
+            }
+            else
+            {
+                $elementsData = $this->getElementsDataFromHtml($listPageData, $this->config['list']['container'], $this->config['list']['element'], 'html');
+                $elementsData = array_splice($elementsData, 0, $this->itemsLimit);
+            }
         }
+
+
+        //        var_dump(count($elementsData));
 
         if (empty($elementsData))
         {
@@ -521,10 +647,12 @@ class ParserCore
 
             if ($this->mode == 'rss')
             {
-                $elTitleData = current($this->getElementsDataFromRss('', $this->config['rss']['element-title'], 'text', -1, $elementData));
-                $elLinkData  = current($this->getElementsDataFromRss('', $this->config['rss']['element-link'], 'text', -1, $elementData));
+                if (!empty($this->config['rss']['element-title']))
+                {
+                    $elTitleData = current($this->getElementsDataFromRss('', $this->config['rss']['element-title'], 'text', -1, $elementData));
+                }
 
-                //                var_dump($elLinkData);
+                $elLinkData = current($this->getElementsDataFromRss('', $this->config['rss']['element-link'], 'text', -1, $elementData));
 
                 if (!empty($this->config['rss']['element-description']))
                 {
@@ -543,8 +671,12 @@ class ParserCore
             }
             else
             {
-                $elTitleData = current($this->getElementsDataFromHtml($elementData, '', $this->config['list']['element-title'], 'text'));
-                $elLinkData  = current($this->getElementsDataFromHtml($elementData, '', $this->config['list']['element-link']));
+                if (!empty($this->config['list']['element-title']))
+                {
+                    $elTitleData = current($this->getElementsDataFromHtml($elementData, '', $this->config['list']['element-title'], 'text'));
+                }
+
+                $elLinkData = current($this->getElementsDataFromHtml($elementData, '', $this->config['list']['element-link']));
 
                 if (!empty($this->config['list']['element-description']))
                 {
@@ -566,7 +698,7 @@ class ParserCore
 
             if (!empty($elTitleData))
             {
-                $elTitle = strip_tags($elTitleData);
+                $elTitle = $this->stripTags($elTitleData);
             }
 
             if (!empty($elLinkData))
@@ -576,7 +708,7 @@ class ParserCore
 
             if (!empty($elDescriptionData))
             {
-                $elDescription = strip_tags($elDescriptionData);
+                $elDescription = $this->stripTags($elDescriptionData);
             }
 
             if (!empty($elImageData))
@@ -645,25 +777,25 @@ class ParserCore
             throw new Exception('Не удалось распарсить карточки. (Пустой результат $itemsParsed)');
         }
 
-        if ((int)static::DEBUG >= 3)
+        if ($this->debug >= 3)
         {
-            echo "------ itemsParsed (before normalize) -----\033[44m" . PHP_EOL;
+            echo "------ itemsParsed (getCards) (before normalize) -----\033[44m" . PHP_EOL;
             print_r($itemsParsed);
-            echo "------ / itemsParsed (before normalize) -----\033[44m" . PHP_EOL;
+            echo "------ / itemsParsed (getCards) (before normalize) -----\033[44m" . PHP_EOL;
         }
 
-        static::showLog(PHP_EOL . '----------------------------------');
-        static::showLog('  нормализация данных (объединение одинаковых)...');
-        static::showLog('----------------------------------');
+        //        static::showLog(PHP_EOL . '----------------------------------');
+        //        static::showLog('  нормализация данных (объединение одинаковых text)...');
+        //        static::showLog('----------------------------------');
+        //
+        //        $itemsParsed = $this->normalizeItems($itemsParsed);
+        //        static::showLog('Сделано');
 
-        $itemsParsed = $this->normalizeItems($itemsParsed);
-        static::showLog('Сделано');
-
-        if ((int)static::DEBUG >= 3)
+        if ($this->debug >= 3)
         {
-            echo "------ itemsParsed (normalized) -----\033[44m" . PHP_EOL;
+            echo "------ itemsParsed (getCards) (normalized) -----\033[44m" . PHP_EOL;
             print_r($itemsParsed);
-            echo "------ / itemsParsed (normalized) -----\033[44m" . PHP_EOL;
+            echo "------ / itemsParsed (getCards) (normalized) -----\033[44m" . PHP_EOL;
         }
 
         static::showLog(PHP_EOL . '----------------------------------');
@@ -751,10 +883,12 @@ class ParserCore
 
                         foreach ($acumulator as $acumData)
                         {
-                            $acumMerged['text'] .= ' ' . $acumData['text'];
+                            //                            $acumMerged['text'] .= ' ' . $acumData['text'];
+                            $acumMerged['text'] .= $acumData['text'];
                         }
 
-                        $acumMerged['text'] .= ' ' . $cur['text'];
+                        //                        $acumMerged['text'] .= ' ' . $cur['text'];
+                        $acumMerged['text'] .= $cur['text'];
 
                         $dataNew[] = $acumMerged;
 
@@ -776,6 +910,38 @@ class ParserCore
         }
 
         return $data;
+    }
+
+    /**
+     *
+     * Очищяем текст от лишних символов
+     * (для корректного сравнения desc vs text)
+     *
+     * @param string $text
+     *
+     * @return string
+     */
+    protected function getCleanText(string $text)
+    : string {
+        // убираем непечатные символы
+        // @author https://stackoverflow.com/questions/1176904/php-how-to-remove-all-non-printable-characters-in-a-string
+        $text = preg_replace('/[\x00-\x1F\x7F]/u', '', $text);
+        $text = preg_replace('/[\xA0]/u', ' ', $text);
+
+        // заменяем сущности
+        $text = html_entity_decode($text);
+
+        // заменяем некоторые символы
+        $substituteSymbs = [
+            '—' => '-'
+        ];
+
+        foreach ($substituteSymbs as $from => $to)
+        {
+            $text = str_replace($from, $to, $text);
+        }
+
+        return trim($text);
     }
 
     /**
@@ -806,6 +972,12 @@ class ParserCore
     // $cards - то что собрали с карточек
     protected function getAdaptiveToParser1500(array $cards)
     : array {
+        if ($this->debug >= 3)
+        {
+            echo "\033[0m";
+            static::showLog('--- getAdaptiveToParser1500() ---');
+        }
+
         if (empty($cards))
         {
             throw new Exception('Нет данных из карточек новостей для адаптации');
@@ -820,12 +992,23 @@ class ParserCore
                 $listItem = $item;
                 $cardItem = $cards[$url] ?? null;
 
+                if ($this->debug >= 3)
+                {
+                    echo "\033[40m";
+                    echo '- ' . $url . PHP_EOL;
+                    echo '$listItem = ' . PHP_EOL;
+                    print_r($listItem);
+                    echo '$cardItem = ' . PHP_EOL;
+                    print_r($cardItem);
+                    echo "\033[0m";
+                }
+
                 $title       = '';
                 $date        = '';
                 $image       = '';
                 $description = '';
 
-                // мержим значения
+                // объединяем значения
 
                 // description
                 if (isset($listItem['description']))
@@ -838,31 +1021,78 @@ class ParserCore
                     $cardItem['description'] = $this->stripText($cardItem['description']) ?? '';
                 }
 
-                if (!empty($listItem['description']))
-                {
-                    $description = $listItem['description'];
-                }
-                elseif (!empty($cardItem['description']))
+                // в приоритете карточка, если установлена
+                if (!empty($this->config['element']['element-description']) && !empty($cardItem['description']))
                 {
                     $description = $cardItem['description'];
                 }
+                // если нет, то витрина
+                elseif (!empty($listItem['description']))
+                {
+                    $description = $listItem['description'];
+                }
 
-                $description = $this->substrMax($description, self::MAX_DESCRIPTION_LENGTH);
+
+                //                $description = $this->substrMax($description, self::MAX_DESCRIPTION_LENGTH);
+                //                $description = '';
+
+                // на всякий случай обрезаем
+                if (!empty($description))
+                {
+                    $description = substr($description, 0, self::MAX_DESCRIPTION_LENGTH);
+                }
+
+                // если нет дескрипшена, то берем его из raw текста
+                // Текст начинает обрезаться с 200-го символа и до первой попавшейся точки. Другие знаки, кроме точки игнорируются (,!*? и т.п.).
+                if (empty($description) && !empty($cardItem['textHtml']))
+                {
+                    // вырезаем все теги
+                    $rawText = strip_tags($cardItem['textHtml']);
+
+                    // только если текст большой
+                    if (strlen($rawText) > 200)
+                    {
+                        $dotStartFrom     = strpos($rawText, '. ', 200);
+                        $textTillFirstDot = substr($rawText, 0, $dotStartFrom + 1);
+                        $description      = $textTillFirstDot;
+                    }
+                    // маленький текст идет полностью в дескрипшен
+                    else
+                    {
+                        $description = $rawText;
+                    }
+                }
+
+                // очищяем дескр от лишних символов
+                //                if (!empty($this->config['site']['remove_desc_from_text']) && $this->config['site']['remove_desc_from_text'] === true)
+                //                {
+                //                    $description = $this->getCleanText($description);
+                //                }
+
 
                 // title
                 if (!empty($listItem['title']))
                 {
                     $title = $listItem['title'];
                 }
+                elseif (!empty($cardItem['title']))
+                {
+                    $title = $cardItem['title'];
+                }
                 elseif (!empty($description))
                 {
                     $title = $description;
                 }
 
-                if (empty($description))
+                $description = trim($description);
+
+                if (empty($description) && !empty($title))
                 {
                     $description = $title;
                 }
+
+                // вырезаем из title лишнее
+                $title = html_entity_decode($title);
 
                 // date
                 if (!empty($listItem['date']))
@@ -898,6 +1128,17 @@ class ParserCore
                 // add data to post
                 if (!empty($cardItem['data']))
                 {
+                    $i             = 1;
+                    $isFirstText   = true; // первый хедер
+                    $isFirstHeader = true; //  первый текст
+
+                    $images = [];
+
+                    if (!empty($image))
+                    {
+                        array_push($images, $image);
+                    }
+
                     foreach ($cardItem['data'] as $data)
                     {
                         switch ($data['type'])
@@ -912,16 +1153,86 @@ class ParserCore
                                         $level = 1;
                                     }
 
+                                    // проверяем что нет дубля с названием
+                                    if ($data['text'] == $title && $i == 1)
+                                    {
+                                        break;
+                                    }
+
+                                    // реализуем логику клиента по удалению дублей дескрипшена из заголовка
+                                    // @issue - если из "что-то. бла-бла-бла что-то. бла-бла-бла" вырезать "что-то.", то получится "бла-бла-бла бла-бла-бла"
+                                    // поэтому подстраховываемся и усиливаем уникальность дескр (кол-во символов)
+                                    if ($isFirstHeader & strlen($description) > 10)
+                                    {
+                                        // очищяем текст от лишних символов, чтобы он соответствовал дескр
+                                        //                                        if (!empty($this->config['site']['remove_desc_from_text']) && $this->config['site']['remove_desc_from_text'] === true)
+                                        //                                        {
+                                        //                                            $data['text'] = $this->getCleanText($data['text']);
+                                        //                                        }
+
+                                        // вырезаем дескр из заголовка
+                                        $data['text'] = str_replace($description, '', $data['text']);
+                                    }
+
+                                    if (!empty($data['text']))
+                                    {
+                                        $Post->addItem(
+                                            new NewsPostItem(
+                                                NewsPostItem::TYPE_HEADER,
+                                                $data['text'],
+                                                null,
+                                                null,
+                                                $level,
+                                                null
+                                            ));
+
+                                        if ($isFirstHeader)
+                                        {
+                                            $isFirstHeader = false;
+                                        }
+                                    }
+                                }
+                                break;
+
+                            case 'text':
+                                // вырезаем текст меньше 4 символов длиной, если он содержит ТОЛЬКО [.,\s?!]
+                                //                                if (
+                                //                                    (strlen($data['text']) <= 4 && preg_match('/[\s\.,\?\!]+/', $data['text'])) ||
+                                //                                    empty(trim($data['text']))
+                                //                                )
+                                //                                {
+                                //                                    break;
+                                //                                }
+
+
+                                // реализуем логику клиента по удалению дублей дескрипшена из текста
+                                // @issue - если из "что-то. бла-бла-бла что-то. бла-бла-бла" вырезать "что-то.", то получится "бла-бла-бла бла-бла-бла"
+                                // поэтому подстраховываемся и усиливаем уникальность дескр (кол-во символов)
+                                if ($isFirstText & strlen($description) > 10)
+                                {
+                                    // вырезаем дескр из текста
+                                    $data['text'] = str_replace($description, '', $data['text']);
+                                }
+
+
+                                if (!empty($data['text']))
+                                {
                                     $Post->addItem(
                                         new NewsPostItem(
-                                            NewsPostItem::TYPE_HEADER,
+                                            NewsPostItem::TYPE_TEXT,
                                             $data['text'],
                                             null,
                                             null,
-                                            $level,
+                                            null,
                                             null
                                         ));
+
+                                    if ($isFirstText)
+                                    {
+                                        $isFirstText = false;
+                                    }
                                 }
+
                                 break;
 
                             case 'link':
@@ -954,26 +1265,6 @@ class ParserCore
                                 }
                                 break;
 
-                            case 'text':
-                                // вырезаем текст меньше 4 символов длиной, если он содержит ТОЛЬКО [.,\s?!]
-                                if (
-                                    (strlen($data['text']) <= 4 && !preg_match('/[^\s.,\?\!]+/', $data['text'])) ||
-                                    empty($data['text'])
-                                )
-                                {
-                                    break;
-                                }
-
-                                $Post->addItem(
-                                    new NewsPostItem(
-                                        NewsPostItem::TYPE_TEXT,
-                                        $data['text'],
-                                        null,
-                                        null,
-                                        null,
-                                        null
-                                    ));
-                                break;
 
                             case 'video':
                                 if (!empty($data['value']))
@@ -993,6 +1284,16 @@ class ParserCore
                             case 'image':
                                 if (!empty($data['url']))
                                 {
+                                    // проверяем на дубли
+                                    if (in_array($data['url'], $images))
+                                    {
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        array_push($images, $data['url']);
+                                    }
+
                                     $Post->addItem(
                                         new NewsPostItem(
                                             NewsPostItem::TYPE_IMAGE,
@@ -1005,12 +1306,83 @@ class ParserCore
                                 }
                                 break;
                         }
+
+                        $i++;
                     }
                 }
+
+                $Post->description = str_replace("\n", '', $Post->description);
 
                 $posts[] = $Post;
             }
         }
+
+        // 1.7+
+        if ($this->parserCoreVerArr[0] == 1 && $this->parserCoreVerArr[1] >= 7)
+        {
+            if (!empty($posts))
+            {
+                $postsNew = [];
+
+                foreach ($posts as $post)
+                {
+                    if (!empty($post->items))
+                    {
+                        $postItemsNew = [];
+
+                        foreach ($post->items as $postItem)
+                        {
+                            // разбиваем текстовый итем на несколько итемов по абзацам
+                            if ($postItem->type == NewsPostItem::TYPE_TEXT)
+                            {
+                                $paragraphs = explode("\n\n", $postItem->text);
+
+                                if (!empty($paragraphs))
+                                {
+                                    foreach ($paragraphs as $paragraph)
+                                    {
+                                        $paragraph = str_replace(' ', ' ', $paragraph);
+                                        $paragraph = trim($paragraph);
+
+                                        // пропускаем параграфы без инфы (содержащие только знаки препинания)
+                                        if (strlen($paragraph) <= 7)
+                                        {
+                                            if (empty(trim($paragraph, ' !,.:;?\t\n\r\0\x0B\xC2\xA0')))
+                                            {
+                                                continue;
+                                            }
+                                        }
+
+                                        $paragraph = preg_replace("/[\r\n ]{2,}/", "\n", $paragraph);
+
+                                        if (!empty($paragraph))
+                                        {
+                                            $postItemsNew[] = new NewsPostItem(
+                                                NewsPostItem::TYPE_TEXT,
+                                                $paragraph,
+                                                null,
+                                                null,
+                                                null,
+                                                null
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                $postItemsNew[] = $postItem;
+                            }
+                        }
+
+                        $post->items = $postItemsNew;
+                    }
+
+                    $postsNew[] = $post;
+                }
+            }
+        }
+
 
         return $posts;
     }
@@ -1077,10 +1449,10 @@ class ParserCore
         $item                 = [];
         $html                 = $this->getPage($url);
 
-        //        echo $html;
-
         if (!empty($html))
         {
+            $elTitle       = '';
+            $elTitleData   = '';
             $elDescription = '';
             $elImage       = '';
             $elDate        = '';
@@ -1089,6 +1461,11 @@ class ParserCore
 
             if (!empty($containerData))
             {
+                if (!empty($this->config['element']['element-title']))
+                {
+                    $elTitleData = current($this->getElementsDataFromHtml($containerData, '', $this->config['element']['element-title'], 'text'));
+                }
+
                 if (!empty($this->config['element']['element-description']))
                 {
                     $elDescriptionData = current($this->getElementsDataFromHtml($containerData, '', $this->config['element']['element-description'], 'html'));
@@ -1111,9 +1488,14 @@ class ParserCore
 
                 static::showLog('-- обработка полученных данных элемента...');
 
+                if (!empty($elTitleData))
+                {
+                    $elTitle = $this->stripTags($elTitleData);
+                }
+
                 if (!empty($elDescriptionData))
                 {
-                    $elDescription = strip_tags($elDescriptionData);
+                    $elDescription = $this->stripTags($elDescriptionData);
                 }
 
                 if (!empty($elDateData))
@@ -1157,10 +1539,12 @@ class ParserCore
                 $elItemData = $this->getItemData($elTextHtml);
 
                 return [
+                    'title'       => $elTitle,
                     'description' => $elDescription,
                     'image'       => $elImage,
                     'date'        => $elDate,
                     'data'        => $elItemData,
+                    'textHtml'    => $elTextHtml,
                 ];
             }
             else
@@ -1168,7 +1552,7 @@ class ParserCore
                 static::showLog('-- Не найдены данные из контейнера карточки ' . $this->config['element']['container'] . '', 'warning');
             }
         }
-        elseif ((int)static::DEBUG >= 1)
+        elseif ($this->debug >= 1)
         {
             static::showLog('Страница вернула пустой результат', 'warning');
         }
@@ -1177,8 +1561,7 @@ class ParserCore
         return $item;
     }
 
-    // @feature вырезание игнорируемых CSS-селекторов из ignore-selectors
-    // включая element-image, element-title, element-description. Если они ...
+    // вырезание игнорируемых CSS-селекторов из ignore-selectors
     protected function getHtmlWithoutIgnoredSelectors(string $html)
     : string {
         $selectors = $this->config['element']['ignore-selectors'] ?? '';
@@ -1271,33 +1654,58 @@ class ParserCore
 
     /**
      *
+     * Вставка селекторов в текст
+     *
      * Вставляем в начало текста новости элементы из селекторов element-text-before
+     * Вставляем в конец текста новости элементы из селекторов element-text-after
      *
      * @param string $html - html текст новости element-text
      *
      * @return string
      */
-    protected function getHtmlWithPrependedSelectors(string $html)
+    protected function getHtmlWithInsertedSelectors(string $html)
     : string {
-        if (!empty($this->config['element']['element-text-before']) && !empty($this->currentPageFullHtml))
+        $htmlPrepended = '';
+        $htmlAppended  = '';
+
+        if (!empty($this->currentPageFullHtml))
         {
-            $htmlPrepended = '';
-
-            // найдем нужные селекторы в полном html страницы
-            $elements = $this->getElementsDataFromHtml($this->currentPageFullHtml, '', $this->config['element']['element-text-before'], 'html');
-
-            if (!empty($elements))
+            // перед текстом
+            if (!empty($this->config['element']['element-text-before']))
             {
-                foreach ($elements as $elementHtml)
+                // найдем нужные селекторы в полном html страницы
+                $elements = $this->getElementsDataFromHtml($this->currentPageFullHtml, '', $this->config['element']['element-text-before'], 'html');
+
+                if (!empty($elements))
                 {
-                    $htmlPrepended .= $elementHtml;
+                    foreach ($elements as $elementHtml)
+                    {
+                        $htmlPrepended .= $elementHtml;
+                    }
                 }
+
+                $htmlPrepended .= ' ';
             }
 
-            //            var_dump($htmlPrepended);
+            // в конец текст
+            if (!empty($this->config['element']['element-text-after']))
+            {
+                // найдем нужные селекторы в полном html страницы
+                $elements = $this->getElementsDataFromHtml($this->currentPageFullHtml, '', $this->config['element']['element-text-after'], 'html');
 
-            $html = $htmlPrepended . $html;
+                if (!empty($elements))
+                {
+                    foreach ($elements as $elementHtml)
+                    {
+                        $htmlAppended .= $elementHtml;
+                    }
+                }
+
+                $htmlAppended = ' ' . $htmlAppended;
+            }
         }
+
+        $html = $htmlPrepended . $html . $htmlAppended;
 
         return $html;
     }
@@ -1312,8 +1720,8 @@ class ParserCore
      */
     protected function getCardTextHtml(string $html)
     : string {
-        // добавляем css-селекторы в начало текста
-        $html = $this->getHtmlWithPrependedSelectors($html);
+        // добавляем css-селекторы в начало и/или в конец текста
+        $html = $this->getHtmlWithInsertedSelectors($html);
 
         // вырезаем игнорируемые теги
         $html = $this->getHtmlWithoutIgnoredSelectors($html);
@@ -1321,13 +1729,8 @@ class ParserCore
         // подменяем цитаты
         $html = $this->getHtmlWithSubstitutedQuotes($html);
 
-        // коррекция тегов для правильной обрезки
-        // (в частности нужно добавить пробелы перед <td> и <li>, чтобы текст не сливался
-        $html = str_replace('<td>', '<td> ', $html);
-        $html = str_replace('<li>', '<li> ', $html);
-
-        // вырезаем все ненужные теги, кроме разрешенных в allowedTags
-        $html = strip_tags($html, $this->allowedTags);
+        // оставляем только нужные теги
+        $html = $this->stripTags($html, $this->allowedTags);
 
         return $html;
     }
@@ -1341,7 +1744,7 @@ class ParserCore
      */
     protected function getItemData(string $html)
     : array {
-        if ((int)static::DEBUG >= 2)
+        if ($this->debug >= 2)
         {
             echo "------ RAW HTML getItemData() -----\033[44m" . PHP_EOL;
             echo $html;
@@ -1370,6 +1773,7 @@ class ParserCore
             $tagName = '';
             $val     = '';
             $text    = '';
+            $imgUrl  = '';
             $data    = [];
 
             $tagName = !empty($element->nodeName) ? $element->nodeName : '#text';
@@ -1384,7 +1788,6 @@ class ParserCore
                 case '#text':
                     if (!empty($val))
                     {
-                        //                        echo '{' . $val . '}' . PHP_EOL;
                         $data = [
                             'type' => self::TYPE_TEXT,
                             'text' => $val,
@@ -1408,12 +1811,41 @@ class ParserCore
                     break;
 
                 case 'img':
-                    $data = [
-                        'type' => self::TYPE_IMAGE,
-                        'text' => $element->getAttribute('alt'),
-                        'url'  => $this->getUrl($element->getAttribute('src')),
-                        'tag'  => $tagName,
-                    ];
+                    $imgUrl = $this->getUrl($element->getAttribute('src'));
+
+                    // бывают картинки в атрибуте data-src
+                    if (empty($imgUrl))
+                    {
+                        $imgUrl = $this->getUrl($element->getAttribute('data-src'));
+                    }
+
+                    // в src бывают встроенные картинки - фиксим
+                    // нашли встроенное
+                    if (strpos($imgUrl, 'data:image/') === 0)
+                    {
+                        // пробуем взять другой аттрибут (data-src)
+                        $imgUrl2 = $this->getUrl($element->getAttribute('data-src'));
+
+                        if (!empty($imgUrl2))
+                        {
+                            $imgUrl = $imgUrl2;
+                        }
+                        else
+                        {
+                            // @todo сделать поиск на  корректный URL по всему тегу
+                            $imgUrl = '';
+                        }
+                    }
+
+                    if (!empty($imgUrl))
+                    {
+                        $data = [
+                            'type' => self::TYPE_IMAGE,
+                            'text' => $element->getAttribute('alt'),
+                            'url'  => $imgUrl,
+                            'tag'  => $tagName,
+                        ];
+                    }
                     break;
 
                 case 'iframe':
@@ -1457,8 +1889,6 @@ class ParserCore
                     $youtubeId = '';
                     $url       = $this->getUrl($element->getAttribute('href'));
 
-                    //                        var_dump($url);
-
                     if (empty($url))
                     {
                         break;
@@ -1479,7 +1909,7 @@ class ParserCore
                             {
                                 $data = [
                                     'type' => self::TYPE_TEXT,
-                                    'text' => $val,
+                                    'text' => ' ' . $val . ' ',
                                     'tag'  => $tagName,
                                 ];
                             }
@@ -1501,7 +1931,6 @@ class ParserCore
                     {
                         // если в тексте ссылки содержатся allowed tags
                         // нужно их обработать
-                        //                            var_dump($element->childNodes);
                         if ($element->childNodes->length >= 2)
                         {
                             $nodeText = '';
@@ -1615,7 +2044,7 @@ class ParserCore
     : ?string {
         if (empty($date))
         {
-            if ((int)static::DEBUG >= 1)
+            if ($this->debug >= 1)
             {
                 static::showLog('Дата пустая!', 'warning');
             }
@@ -1632,11 +2061,28 @@ class ParserCore
             return $this->getCorrectedDateToGrinvich($dateTime);
         }
 
-        // убираем теги, которые скорее всего содержат ненужную инфу (div)
-        $date = preg_replace('~<div(.*?)</div>~Usi', "", $date);
+        // @bug - дата была заключена в ссылке <a href="http://nashcheremshan.ru/news/date/list/2020-10-30%2009:01:00" class="page-main__publish__date">30 октября 2020 - 09:01</a>
+        // убираем теги A, которые скорее всего содержат ненужную инфу (div)
+        //        $date = preg_replace('~<a(.*?)</a>~Usi', "", $date);
 
         // вырезаем лишние теги
         $date = strip_tags($date);
+
+        // убираем entities
+        $date = html_entity_decode($date);
+
+        // убираем ненужные слова
+        $replacedWords = [
+            ' г.',
+            ' г.',
+            ' год',
+            ' год',
+            ' года',
+            ' года',
+        ];
+
+        $date = str_replace(' ', ' ', $date);
+        $date = str_replace($replacedWords, '', $date);
 
         // вырезаем лишние символы
         if ($this->currentElement != 'rss')
@@ -1656,6 +2102,8 @@ class ParserCore
                 $date = str_replace($stopWord, '', $date);
             }
         }
+
+        $date = trim($date);
 
         // вырезаем безхозные точки
         $date = $date . ' ';
@@ -1724,6 +2172,7 @@ class ParserCore
                     }
                 }
             }
+
             $dateTime = DateTimeImmutable::createFromFormat($this->dateFormat, $date, $timeZone);
         }
 
@@ -1746,6 +2195,10 @@ class ParserCore
      * а также, типа: 15 октября 2020
      *
      */
+    // @todo некоторые форматы даты не поддерживаются, а именно:
+    // 2020 | ноябрь | 23
+    // январь
+    // 16.10 в 21:30
     protected
     function getDateFromText(string $date, DateTimeZone $timeZone
     )
@@ -1794,91 +2247,97 @@ class ParserCore
             }
         }
 
-        //        echo $date;
 
-
-        // сложная дата
-        preg_match('/\d{2}:\d{2}/', $date, $matches);
-        preg_match('/\d+\s\D{3,}\s\d{4}/', $date, $matches2);
-        preg_match('/[^\.]+\d+\s\D{3,}/', $date, $matches3);
-
-        $timeStr        = $matches[0] ?? '';
-        $dateStr        = $matches2[0] ?? '';
-        $dayAndMonthStr = '';
-
-        if (isset($matches3[0]) && strlen(trim($matches3[0])) > 6)
+        if ('сложная дата (разбираем ее на часы, минуты, год, день-месяц, а остальное отбрасываем)')
         {
-            $dayAndMonthStr = trim($matches3[0]);
-        }
+            $date = ' ' . $date . ' ';
 
-        // если есть три точки, то это полная дата
-        if (substr_count($date, '.') == 2)
-        {
-            preg_match('/\d{2}\.\d{2}\.(\d{2,4})/', $date, $fullDateMatches);
+            // вырезаем все слова меньше трех символов
+            $date = preg_replace('/\s\p{Cyrillic}{1,2}\s/u', ' ', $date);
 
-            $fullDateStr     = $fullDateMatches[0] ?? '';
-            $fullDateYearStr = $fullDateMatches[1] ?? '';
+            // часы
+            preg_match('/\d{2}:\d{2}/', $date, $matchHourMinute);
 
+            $timeStr = $matchHourMinute[0] ?? '';
 
-            $fullDateFormatDate = 'd.m.Y';
-
-            if ($fullDateStr)
+            if ($timeStr)
             {
-                if (strlen($fullDateYearStr) == 2)
-                {
-                    $fullDateFormatDate = 'd.m.y';
-                }
-
-                if ($timeStr)
-                {
-                    return DateTimeImmutable::createFromFormat($fullDateFormatDate . ' H:i', $fullDateStr . ' ' . $timeStr, $timeZone);
-                }
-                else
-                {
-                    return DateTimeImmutable::createFromFormat($fullDateFormatDate, $fullDateStr, $timeZone);
-                }
+                $timeStr = trim($timeStr);
             }
-            //            echo 'есть полная дата!';
-        }
+            else
+            {
+                $timeStr = date('12:00');
+            }
 
-        //        echo '$timeStr = ' . $timeStr . PHP_EOL;
-        //        echo '$dateStr = ' . $dateStr . PHP_EOL;
-        //        echo '$dayAndMonthStr = ' . $dayAndMonthStr . PHP_EOL;
+            $date = str_replace($timeStr, '', $date);
 
-        if (!empty($dateStr) || !empty($dayAndMonthStr))
-        {
+            // год
+            preg_match('/\d{4}/', $date, $matchYear);
+
+            $timeYear = $matchYear[0] ?? '';
+
+            if ($timeYear)
+            {
+                $timeYear = trim($timeYear);
+            }
+            else
+            {
+                $timeYear = date('Y');
+            }
+
+            $date = str_replace($timeYear, '', $date);
+
+            // день и месяц
+            preg_match('/(?<dayMonth>\d+\s\p{Cyrillic}{3,}+)/iu', $date, $matchDateDayMonth);
+
+            $dayAndMonth = $matchDateDayMonth['dayMonth'] ?? '';
+
+            if ($dayAndMonth)
+            {
+                $dayAndMonth = trim($dayAndMonth);
+                $date        = str_replace($dayAndMonth, '', $date);
+            }
+
+            if (!empty($dayAndMonth))
+            {
+                $fullDate = $dayAndMonth . ' ' . $timeYear;
+            }
+            else
+            {
+                $fullDate = date('d m') . ' ' . $timeYear;
+            }
+
+            //
+            // собираем новую дату
+            //
+
+            // узнаем дату из месяца
             $dateWithNumMonth = '';
 
-            if ($dateStr)
+            if (!empty($fullDate))
             {
-                $dateWithNumMonth = $this->getDateWithNumMonth($dateStr);
-            }
-            elseif ($dayAndMonthStr && empty($dateStr))
-            {
-                $dateWithNumMonth = $this->getDateWithNumMonth($dayAndMonthStr);
+                $dateWithNumMonth = $this->getDateWithNumMonth($fullDate);
             }
 
-            if (!empty($dateWithNumMonth))
-            {
-                if (!empty($timeStr))
-                {
-                    $fullDate = $dateWithNumMonth . ' ' . trim($timeStr);
+            $date = $dateWithNumMonth . ' ';
 
-                    if (strlen($fullDate) > 14)
-                    {
-                        return DateTimeImmutable::createFromFormat('d m Y H:i', $fullDate, $timeZone);
-                    }
-                }
-                else
-                {
-                    return DateTimeImmutable::createFromFormat('d m Y', $dateWithNumMonth, $timeZone);
-                }
+            // добавляем время
+            if (!empty($timeStr))
+            {
+                $date .= $timeStr;
+            }
+
+            if (strlen($date) >= 15)
+            {
+                return DateTimeImmutable::createFromFormat('d m Y H:i', $date, $timeZone);
             }
         }
 
         // поздравляю! Вы победили в конкурсе "самая оригинальная дата"
         // @bug no timeZone
-        return $this->TimeParser->parse($date);
+        {
+            return $this->TimeParser->parse($date);
+        }
     }
 
     private
@@ -1917,6 +2376,7 @@ class ParserCore
             'июн'      => '06',
             'июл'      => '07',
             'авг'      => '08',
+            'сен'      => '09',
             'сент'     => '09',
             'окт'      => '10',
             'ноя'      => '11',
@@ -1934,6 +2394,32 @@ class ParserCore
         return $date;
     }
 
+    /**
+     * Геттер, который достает из строки все, что похоже на урл (относительный или абсолютный)
+     * например: background-image: url(/back1.jpg) => /back1.jpg
+     *
+     * @param string $attrVal
+     *
+     * @return string|null
+     */
+    protected function getUrlFromStyleAttr(string $attrVal)
+    : string {
+        if (empty($attrVal))
+        {
+            return '';
+        }
+
+        preg_match_all('~\bbackground(-image)?\s*:(.*?)\(\s*(\'|")?(?<image>.*?)\3?\s*\)~i', $attrVal, $matches);
+        $images = $matches['image'];
+
+        if (!empty($images[0]))
+        {
+            return $images[0];
+        }
+
+        return '';
+    }
+
     // геттер элементов HTML
     protected
     function getElementsDataFromHtml(string $html, string $containerSelector, string $elementSelector, string $get = 'html'
@@ -1947,10 +2433,6 @@ class ParserCore
         {
             throw new Exception('Не установлен CSS-селектор!');
         }
-
-        //        $html = '<meta http-equiv="content-type" content="text/html; charset=utf-8">'
-        //        $html = '<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"></head><body>' . $html . '</body></html>';
-
 
         // решаем проблемы с кодировкой
         if ($this->currentCharset != 'utf-8')
@@ -1970,7 +2452,16 @@ class ParserCore
             $elements->each(function (Crawler $element, $i) use (&$data, $get, $attribute) {
                 if (!empty($attribute))
                 {
-                    $data[] = $element->attr($attribute);
+                    // если запрашивается style, то ищем ссылку
+                    if ($attribute == 'style')
+                    {
+                        $attrVal = $element->attr($attribute);
+                        $data[]  = $this->getUrlFromStyleAttr($attrVal);
+                    }
+                    else
+                    {
+                        $data[] = $element->attr($attribute);
+                    }
                 }
                 elseif ($get == 'html')
                 {
@@ -1993,7 +2484,7 @@ class ParserCore
     : array {
         $this->showLog('getElementsDataFromRss($html, "' . $elementSelector . '", "' . $get . '", "' . $limit . '", Crawler "' . (bool)$Crawler . '" ):', 'talkative');
 
-        if ((int)static::DEBUG >= 2 && !empty($xml))
+        if ($this->debug >= 2 && !empty($xml))
         {
             echo "------ RAW XML  -----\033[44m" . PHP_EOL;
             echo $xml;
@@ -2025,8 +2516,6 @@ class ParserCore
         $attribute       = $this->getAttrFromSelector($elementSelector);
         $elementSelector = $Converter->toXPath($elementSelector);
 
-        //        echo $elementSelector;
-
         if ($limit > 0)
         {
             $elements = $Crawler->filterXPath($elementSelector)->slice(0, $limit);
@@ -2035,8 +2524,6 @@ class ParserCore
         {
             $elements = $Crawler->filterXPath($elementSelector);
         }
-
-        //        var_dump($elements);
 
         if ($elements)
         {
@@ -2094,9 +2581,156 @@ class ParserCore
     function getUrl(?string $url
     )
     : ?string {
+        // общий URL сайта и карточки может отличаться.
+        // указываем в настройках element, чтобы можно было правильно составлять относительные URL
+        if (!empty($this->config['element']['url']) && !empty($this->currentElement) && $this->currentElement == 'element')
+        {
+            $this->siteUrl = $this->config['element']['url'];
+        }
+
+        // кириллический URL
+        if (!empty($this->config['site']['url_cyrillic']) && !empty($url))
+        {
+            // обратное преобразование
+            $url = urldecode($url);
+
+            // вырезаем ненужное из URL
+            $url = str_replace($this->config['site']['url_cyrillic'], '', $url);
+        }
+
+        // кодируем кириллицу в ссылках
+        if (!empty($url))
+        {
+            $url = $this->encodeRusUrl($url);
+        }
+
+        // кодируем пробелы
+        if (strpos($url, ' ') !== false)
+        {
+            $url = str_replace(' ', '%20', $url);
+        }
+
+
+        // убираем пробелы в конце (%20 %0A)
+        if (strpos($url, '%20') !== false ||
+            strpos($url, '%0A') !== false)
+        {
+            $url = preg_replace('/[%20%0A]*$/', '', $url);
+        }
+
+
         $url = ($url) ? UriResolver::resolve($url, $this->siteUrl) : null;
 
         return $url;
+    }
+
+    /**
+     * Русские буквы в ссылке
+     *
+     * @param string $url
+     *
+     * @return string
+     */
+    protected function encodeRusUrl(string $url)
+    : string {
+        if (preg_match('/[А-Яа-яЁё]/iu', $url))
+        {
+            preg_match_all('/[А-Яа-яЁё]/iu', $url, $result);
+
+            $search  = [];
+            $replace = [];
+
+            foreach ($result as $item)
+            {
+                foreach ($item as $key => $value)
+                {
+                    $search[$key]  = $value;
+                    $replace[$key] = urlencode($value);
+                }
+            }
+
+            $url = str_replace($search, $replace, $url);
+        }
+
+        return $url;
+    }
+
+    private function getParserName()
+    : ?string
+    {
+        $classParts = explode('\\', get_class($this));
+
+        if (!empty($classParts))
+        {
+            return end($classParts);
+        }
+    }
+
+    /**
+     * url => filename
+     *
+     * Parameters:
+     *     $string - The string to sanitize.
+     *     $force_lowercase - Force the string to lowercase?
+     *     $anal - If set to *true*, will remove all non-alphanumeric characters.
+     */
+    function convertUrlToFileName($string, $force_lowercase = true, $anal = false)
+    {
+        $strip = [
+            "~",
+            "`",
+            "!",
+            "@",
+            "#",
+            "$",
+            "%",
+            "^",
+            "&",
+            "*",
+            "(",
+            ")",
+            "_",
+            "=",
+            "+",
+            "[",
+            "{",
+            "]",
+            "}",
+            "\\",
+            "|",
+            ";",
+            ":",
+            "\"",
+            "'",
+            "&#8216;",
+            "&#8217;",
+            "&#8220;",
+            "&#8221;",
+            "&#8211;",
+            "&#8212;",
+            "â€”",
+            "â€“",
+            ",",
+            "<",
+            ".",
+            ">",
+            "/",
+            "?"
+        ];
+        $clean = trim(str_replace($strip, "_", strip_tags($string)));
+        $clean = preg_replace('/\s+/', "-", $clean);
+
+        //        $clean = ($anal) ? preg_replace("/[^a-zA-Z0-9\.\-]/", "", $clean) : $clean;
+
+        return ($force_lowercase)
+            ?
+            (function_exists('mb_strtolower'))
+                ?
+                mb_strtolower($clean, 'UTF-8')
+                :
+                strtolower($clean)
+            :
+            $clean;
     }
 
     /**
@@ -2133,7 +2767,7 @@ class ParserCore
             // чуть помедленнее, кони, чуть помедленнее...
             if ($this->pauseBeforeRequest > 0)
             {
-                if ((int)static::DEBUG >= 1)
+                if ($this->debug >= 1)
                 {
                     static::showLog('пауза ' . $this->pauseBeforeRequest . ' сек...');
                 }
@@ -2156,11 +2790,53 @@ class ParserCore
                         $Curl->setOption(CURLOPT_USERAGENT, $this->config['site']['user_agent']);
                     }
                 }
+
+                if (!empty($this->config['site']['encoding']))
+                {
+                    $Curl->setOption(CURLOPT_ENCODING, $this->config['site']['encoding']);
+                }
+
+                if (!empty($this->config['site']['insecure']) && $this->config['site']['insecure'])
+                {
+                    $Curl->setOption(CURLOPT_SSL_VERIFYHOST, 0);
+                    $Curl->setOption(CURLOPT_SSL_VERIFYPEER, 0);
+                }
             }
 
             $responseHtml       = $Curl->get($url);
             $responseInfo       = $Curl->getInfo();
             $this->responseInfo = $responseInfo;
+
+            if ($this->debug >= 3)
+            {
+                if (!empty($Curl->errorText))
+                {
+                    echo "\033[31m";
+                    echo $Curl->errorText . PHP_EOL;
+                    echo "\033[0m";
+                }
+
+                print_r($responseInfo);
+                print_r($responseHtml);
+
+                if ('записываем в /utils/pages/Parser/url.html')
+                {
+                    $pagesDir   = 'utils/pages';
+                    $parserName = $this->getParserName();
+                    $dir        = dirname(getcwd() . '/../' . $pagesDir) . '/pages/';
+                    $parserDir  = $dir . $parserName;
+                    $fileName   = $this->convertUrlToFileName($url);
+
+                    if (!is_dir($parserDir))
+                    {
+                        mkdir($parserDir);
+                    }
+
+                    $file = $parserDir . '/' . $fileName . '.html';
+                    static::showLog('Записываем контент страницы в ' . $pagesDir . '/' . $parserName . '/' . $fileName . '.html');
+                    var_dump(file_put_contents($file, $responseHtml));
+                }
+            }
 
             // пост обработка
             if (!empty($responseHtml))
@@ -2168,34 +2844,66 @@ class ParserCore
                 // контент получен
                 if ($responseInfo['http_code'] >= 200 && $responseInfo['http_code'] < 300)
                 {
+                    // RSS
                     if ($this->currentElement == 'rss')
                     {
+                        // решаем проблемы кодировки
+                        //                        $responseHtml = iconv("UTF-8", "UTF-8//IGNORE", $responseHtml);
+
+                        // и некоректных заголовков, неймспейсов
                         $responseHtml = $this->getCorrectedXml($responseHtml);
+
+                        // делаем перекодировку
+                        if (!empty($this->config['rss']['encoding']))
+                        {
+                            $responseHtml = mb_convert_encoding($responseHtml, 'utf-8', $this->config['rss']['encoding']);
+                        }
                     }
+                    // HTML
                     else
                     {
                         // решаем проблемы кодировки. Все должно быть переведено в utf-8
-                        $charset    = '';
-                        $charsetRaw = !empty($responseInfo['content_type']) ? $responseInfo['content_type'] : null;
-
-
-                        if (strpos($charsetRaw, 'charset=') !== false)
+                        if (!empty($this->config['site']['encoding']))
                         {
-                            $charset = str_replace("text/html; charset=", "", $charsetRaw);
+                            $charset = $this->config['site']['encoding'];
                         }
                         else
                         {
-                            preg_match('/charset=([-a-z0-9_]+)/i', $responseHtml, $charsetMatches);
+                            $charset    = '';
+                            $charsetRaw = !empty($responseInfo['content_type']) ? $responseInfo['content_type'] : null;
 
-                            if (!empty($charsetMatches[1]))
+                            // нашли в заголовках
+                            if (strpos($charsetRaw, 'charset=') !== false)
                             {
-                                $charset = trim($charsetMatches[1]);
+                                preg_match('~charset=(\'|")?(?<charset>[\w\-]*)(\'|")?~', $charsetRaw, $charsetMatches);
+
+                                // план А
+                                if (!empty($charsetMatches['charset']))
+                                {
+                                    $charset = $charsetMatches['charset'];
+                                }
+                                // план В
+                                else
+                                {
+                                    $charsetRaw = str_replace("text/html; charset=", "", $charsetRaw);
+                                    $charsetRaw = str_replace("text/html;charset=", "", $charsetRaw);
+                                    $charset    = $charsetRaw;
+                                }
+                            }
+                            // не нашли в заголовках. Ищем в контенте
+                            else
+                            {
+                                preg_match('/charset=([-a-z0-9_]+)/i', $responseHtml, $charsetMatches);
+
+                                if (!empty($charsetMatches[1]))
+                                {
+                                    $charset = trim($charsetMatches[1]);
+                                }
                             }
                         }
 
                         $charset              = strtolower($charset);
                         $this->currentCharset = $charset;
-                        //                        var_dump($charset);
 
 
                         // делаем перекодировку
@@ -2210,20 +2918,17 @@ class ParserCore
                 }
                 else
                 {
-                    // что-то пошло не так
                     return null;
                 }
             }
         }
 
         // вырезаем теги <script> <style>, которые не вырезаются через strip_tags
-
-        if ($this->currentElement != 'rss')
+        if ($this->currentElement != 'rss' && $this->currentElement != 'list')
         {
             $responseHtml = preg_replace('#<script(.*?)>(.*?)</script>#is', '', $responseHtml);
             $responseHtml = preg_replace('#<style(.*?)>(.*?)</style>#is', '', $responseHtml);
         }
-
 
         if (is_string($responseHtml) && !empty($responseHtml))
         {
@@ -2243,14 +2948,17 @@ class ParserCore
         // ставим первым <?xml version="1.0"...
         $responseHtml = preg_replace('/\s*<\?xml\s.*\?>/', '<?xml version="1.0"?>', $responseHtml);
 
+
         // убираем всякую чушь из тега rss
         // <rss version="2.0" xmlns="http://backend.userland.com/rss2" xmlns:yandex="http://news.yandex.ru">
-        $responseHtml = preg_replace('/<rss[\s]?[^>]*>/', '<rss version="2.0">', $responseHtml);
+        $responseHtml = preg_replace('/<rss\s+[^>]*>|<rss>/', '<rss version="2.0">', $responseHtml);
 
-        //        echo $responseHtml;
-        //        die;
+        if ($this->debug >= 3)
+        {
+            static::showLog('Начало XML после корректировки: ' . substr($responseHtml, 0, 1000));
+        }
 
-        if ((int)static::DEBUG >= 1 && 'проверка RSS на корректность')
+        if ($this->debug >= 1 && 'проверка RSS на корректность')
         {
             libxml_use_internal_errors(true);
             try
@@ -2282,6 +2990,13 @@ class ParserCore
     {
         // @author https://github.com/Metallizzer/TimeParser
         return new TimeParser('russian');
+    }
+
+    // @todo переделать
+    private function getDebug()
+    {
+        // CORE_PARSER_DEBUG_EXTERNAL - определяется там где нужно "перебить" режим установленный в парсере
+        return defined('CORE_PARSER_DEBUG_EXTERNAL') ? CORE_PARSER_DEBUG_EXTERNAL : (int)static::DEBUG;
     }
 
     private function getPauseBeforeRequest()
@@ -2327,7 +3042,7 @@ class ParserCore
         $parserLimit = $this->config['itemsLimit'] ?? null;
         $realLimit   = 10;
 
-        if ((int)static::DEBUG >= 1)
+        if (isset($this->debug) && $this->debug >= 1)
         {
             if (!empty($parserLimit))
             {
@@ -2337,6 +3052,20 @@ class ParserCore
         else
         {
             $realLimit = $coreLimit;
+        }
+
+        // если включен режим внешнего управление дебагом CORE_PARSER_DEBUG_EXTERNAL, то
+        // считаем что также лимит = 1
+        if (defined('CORE_PARSER_DEBUG_EXTERNAL'))
+        {
+            if (defined('CORE_PARSER_LIMIT_ITEMS_EXTERNAL'))
+            {
+                $realLimit = CORE_PARSER_LIMIT_ITEMS_EXTERNAL;
+            }
+            else
+            {
+                $realLimit = 1;
+            }
         }
 
 
@@ -2478,7 +3207,8 @@ class ParserCore
     private
     function showLog(string $message, string $mode = 'default', $break = true
     ) {
-        $debug = (int)static::DEBUG;
+        $debug = $this->debug;
+
         if ($debug > 0)
         {
             $maxLen    = 1000;
@@ -2564,11 +3294,24 @@ class ParserCore
 
     // @note чтобы потестить даты без текста должен быть включен режим desktop
     public
-    function testGetDate($mode = 'all'
+    function testGetDate($mode = 'all', string $dateFormat = ''
     ) {
+        if (empty($dateFormat))
+        {
+            $this->dateFormat = 'd.m.Y H:i';
+        }
+        else
+        {
+            $this->dateFormat = $dateFormat;
+        }
+
+        $this->timeZone = '+0000';
+
         static::showLog('--- format= ' . $this->dateFormat . ' | zone= ' . $this->timeZone . ' ---');
+
         $valuesDate = [
             '',
+            '28.10.2020 07:38',
             '17:00',
             '16.10.2020 | 18:10',
             '15.10.2020',
@@ -2580,6 +3323,17 @@ class ParserCore
             //            '2020.01.01',
         ];
         $valuesText = [
+            '1 ноября',
+            '1 ноября 2019',
+            '1 ноября 2020',
+            '1 ноября 2020 в 10:00',
+            '1 ноября 2020 в 10:00:11',
+            '2020, 23 ноября',
+            '16 Окт, 2020',
+            '2020 | ноябрь | 23',
+            '28 сен 2020 / из 11:22:33',
+            '1&nbsp;ноября 2020',
+            '<div class="b-material-head__date"><span class="b-material-head__date-day">1&nbsp;ноября 2020&nbsp;г.</span> <span class="b-material-head__date-time">14:40</span></div>',
             'Sat, 24 Oct 2020 07:21:09 +0400',
             ' 22 Октября, Четверг',
             ' 22 Октября, пт.',
@@ -2603,10 +3357,6 @@ class ParserCore
             '7 часов назад',
             'вчера в 19:10',
             'вчера',
-            '1 октября',
-            '11 октября 2019',
-            '11 октября 2019, 10:00:00',
-            '16 Окт, 2020',
             '',
             'uqgwejhjvjv',
             'фигня какая-то'
@@ -2648,5 +3398,10 @@ class ParserCore
         {
             echo $selector . ' => ' . $this->getAttrFromSelector($selector) . PHP_EOL;
         }
+    }
+
+    public function getVersion()
+    {
+        return self::VERSION;
     }
 }

@@ -2,84 +2,265 @@
 // крутые html примеры для теста https://www.htmhell.dev/1/
 
 return [
-    'https://test/incorrect1.xml' => <<<'HTML'
-
-
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns="http://backend.userland.com/rss2" xmlns:yandex="http://news.yandex.ru">
-<channel>
-<title>Новости</title>
-<link>https://in-news.ru</link>
-<description></description>
-<lastBuildDate>Thu, 22 Oct 2020 17:32:57 +0500</lastBuildDate>
-<ttl>60</ttl>
-<yandex:logo>https://in-news.ru/bitrix/templates/innews_main/images/yandex_normal_logo.png</yandex:logo>
-<yandex:logo type="square">https://in-news.ru/bitrix/templates/innews_main/images/yandex_square_logo.png</yandex:logo>
-
-
-<item>
-	<title>ЭКСКЛЮЗИВ. С 23 октября в Сургуте откроются круглосуточные кабинеты для КТ-исследований</title>
-	<link>https://in-news.ru/news/zdorovie/eksklyuziv-s-23-sentyabrya-v-surgute-otkroyutsya-kruglosutochnye-kabinety-dlya-kt-issledovaniy.html</link>
-	<description>Обследование там смогут пройти горожане с подтвержденным коронавирусом и тех, у кого есть симптомы болезни</description>
-	
-		
-		<enclosure url="https://in-news.ru/upload/iblock/17d/17dee63eb1b03bf25aa52eda47548d9c.jpg" length="36976" type="image/jpeg"/>
-				<category>Здоровье</category>
-				<yandex:full-text>&lt;p&gt;
-	 С 23 октября в Сургуте заработают круглосуточные кабинеты неотложной помощи для больных коронавирусом, и тех, у кого есть симптомы новой инфекции. Там же в случае необходимости можно будет выполнить КТ-исследование легких. На работу 24 на 7 перейдут кабинеты в поликлиниках номер один, два и четыре. Об этом телеканалу «Сургут 24» сообщил главный врач первой ГП&lt;b&gt; Максим Слепов.&lt;/b&gt;&lt;b&gt; «Это будет сделано для того, чтобы разгрузить приемное отделение Сургутской окружной клинической больницы»&lt;/b&gt;, - отметил он. Говоря о причинах такого решения руководитель окружного департамента здравоохранения &lt;b&gt;Алексей Добровольский&lt;/b&gt; отметил повышение эффективности и скорости постановки диагнозов. В случае необходимости госпитализировать пациентов с ковид-19 тоже будут быстрее, потому как весь комплекс исследований для этого уже будет выполнен.
-&lt;/p&gt;
-&lt;p&gt;
-	&lt;b&gt;«Мы сегодня видим не очень большую нагрузку на эти компьютерные томографы в поликлиниках. 30, 25, 40 исследований – это полторы, даже не две смены работы КТ. Но с учетом того, что это неравномерно, это невозможно распланировать от минуты к минуте, от часа к часу, поэтому нам эффективнее перевести их в режим работы 24/7. Неделя, две, три, четыре, я думаю, и вернемся к тому моменту, когда сможем это решение откатить», &lt;/b&gt;– рассказал директор департамента здравоохранения Алексей Добровольский.
-&lt;/p&gt;</yandex:full-text>
-		<pubDate>Thu, 22 Oct 2020 16:40:00 +0500</pubDate>
-</item>
-
-
-</channel>
-</rss>
-
-
-
-HTML,
-    'https://test/incorrect2.xml' => <<<'HTML'
-
-<?xml version="1.0"?>
-<rss version="2.0">
-  <channel>
-    <language>ru</language>
-    <title>Братская студия телевидения - новости Братска</title>
-    <description>Новости города Братска и Иркутской области</description>
-    <link>https://bst.bratsk.ru</link>
-    <yandex:logo>https://bst.bratsk.ru/bstlogo.png</yandex:logo>
-    <item>
-      <title>Иркутянин варит сыры с сибирской изюминкой</title>
-      <link>https://bst.bratsk.ru/news/43221</link>
-      <pdalink>https://bst.bratsk.ru/news/43221</pdalink>
-      <pubDate>Fri, 23 Oct 2020 18:45:00 +0800</pubDate>
-      <description>&lt;p&gt;&lt;/p&gt;&lt;p&gt;Его любят и взрослые, и дети. А ещё он полезен для здоровья. Но мало, кто знает, как его создают. Сейчас речь пойдёт о сыре. Иркутянин не только наладил производство ценного продукта, но и использует в своём деле необычные рецепты&lt;/p&gt;
-</description>
-    </item>
-
-
-
-</channel>
-</rss>
-
-
-
-HTML,
-
-    'https://test/element-text-before' => <<<'HTML'
+    'https://test/text-items' => <<<'HTML'
 <!DOCTYPE html>
 <html>
 <body>
 
-<h2 id="before1">
+
+
+<div id="container">
+    <div id="desc">desc</div>
+        
+    <div id="text">
+        <p>text1 <a href="/a">link1</a> text2</p>
+        
+        <p>text3</p>
+        
+        <p>text4-1<br>text4-2</p>
+
+        
+        
+        <p>
+        text5<br>
+        text6<br>
+        text7</p>
+        
+        <p>text8 <p>text9-inside</p></p>
+        
+        <p></p>
+        
+        <p>text10</p>
+        
+        <p>text11<a href="/b">link2</a>..,!</p>
+        
+        <p>text12<br><br>text13</p>
+        
+        <p>text14
+        
+        
+        
+        
+        
+        
+        text15</p>
+        
+        <p>text16<a href="/c">link3</a>я!?</p>
+        
+        text17<br>
+        text18-known-bug<br>
+        
+        <p>text19<br><br></p>
+        
+        <p>&nbsp;</p>
+        <p> </p>
+        <p> </p>
+        <p>&nbsp;&nbsp;&nbsp;</p>
+        
+        text20
+    
+    </div>
+</div>
+</body>
+</html>
+
+HTML,
+
+
+    'https://test/spaces' => <<<'HTML'
+<!DOCTYPE html>
+<html>
+<body>
+
+
+
+<div id="container">
+    <div id="desc">desc</div>
+        
+    <div id="text">
+        <div>
+            Lorem ipsum     dolor sit.<br><br>
+            Lorem ipsum dolor sit amet.
+        </div>
+        <p>Параграф 1</p><p>Параграф 2</p>
+        <p>Параграф 3</p><p>Параграф 4 start <p>inside</p> 4 end<br><br></p>
+        
+        
+        
+        <p>Параграф 5<br>Текст 5-1<br><br>Текст 5-2</p>
+        
+        
+        
+        <p>Параграф 6</p>
+    </div>
+</div>
+</body>
+</html>
+
+HTML,
+
+    'https://test/desc-vs-text' => <<<'HTML'
+<!DOCTYPE html>
+<html>
+<body>
+
+
+
+<div id="container">
+    
+    <div id="desc">
+        <div class="post-item__photo-caption">В   Германии из-за пандемии
+коронавируса закрыли бары и рестораны</div>
+    
+    </div>
+    
+    <div id="text">
+    <div class="post-item__photo-caption">В Германии из-за пандемии
+коронавируса закрыли бары и рестораны</div>
+
+<div style=""></div>
+<h2>Право на подачу заявок на получение материальной помощи имеют
+компании, предприятия, самозанятые лица, ассоциации и учреждения,
+которым запрещено вести бизнес на время ограничений.</h2>
+        <div>Проверка</div><div>Мержа</div>
+        <h2>qwe</h2> 
+    </div>
+    
+    <div id="desc1">Стартап FreshToHome из Бангалора, разрабатывающий платформу для оптимизации бесконтактной торговли продуктами питания, успешно закрыл раунд финансирования серии C на сумму $121 млн. и, таким образом, установил новый рекорд для венчурного рынка Индии. Площадка FreshToHome убирает лишних посредников и сокращает время проведения операций в цепочках поставок до 24-36 часов. Главная цель компании - уберизировать работу фермеров и рыбаков.
+    </div>
+    
+    <div id="text1">
+    Стартап FreshToHome из Бангалора, разрабатывающий платформу для оптимизации бесконтактной торговли продуктами питания, успешно закрыл раунд финансирования серии C на сумму $121 млн. и, таким образом, установил новый рекорд для венчурного рынка Индии. Площадка FreshToHome убирает лишних посредников и сокращает время проведения операций в цепочках поставок до 24-36 часов. Главная цель компании — уберизировать работу фермеров и рыбаков. FreshToHome напрямую закупает рыбу, мясо и овощи у поставщиков с помощью запатентованной технологии на базе ИИ. Фермеры и рыбаки подают заявки на отправку последних урожаев в приложении компании, что, по словам представителей FreshToHome, позволяет лучше контролировать качество товаров и снижать стоимость продуктов для конечного потребителя. Как сообщает TechCrunch, стартап предлагает свои услуги в нескольких крупных городах Индии, включая Дели, Мумбаи, Пуне, Бангалор и Хайдарабад, а также готовится к выходу на рынок ОАЭ.
+    </div>
+
+    <div id="text1">
+        <h1>тот же самый дескр. и еще заголовок</h1>
+        тот же <a href="/link">самый</a>дескр. и еще какой-то текст
+    </div>
+</div>
+</body>
+</html>
+
+HTML,
+
+    'https://test/spaces-in-attr' => <<<'HTML'
+<!DOCTYPE html>
+<html>
+<body>
+
+
+
+<div id="container">
+    <div class="img1"> /ava.jpg 
+    </div>
+
+    <div id="text">
+    пробелы в атрибутах
+
+    <p>test1</p><a href="/asd">link</a><p>test2</p><p>test3</p>
+    <p>test4</p>
+        
+    <img src=" /normal.jpg 
+    " />
+    <img class="img" src="/uploads/news/2020/10.2020/5/1/land-rover-baby-defender-renderings (1).jpg">
+    <img src="/with spaces.jpg" />
+    <a href=" /some ">some</a>
+    <a href="/some2%20">some</a>
+    
+    
+    
+    
+    
+    
+    
+    текст
+    
+    
+    
+    
+    
+    еще текст
+    
+        текст
+    
+    </div>
+</div>
+</body>
+</html>
+
+HTML,
+
+    'https://test/image-from-background' => <<<'HTML'
+<!DOCTYPE html>
+<html>
+<body>
+
+
+
+<div id="container">
+
+    <div id="text">
+    
+    <img src="/normal.jpg" />
+    <div class="img"  style="background-image: url( /multi1.jpg ), url('/multi2.jpg')"></div>
+    <div class="img"  style="background-image: url( /back1.jpg )"></div>
+    <div class="img" style="background-image: url(https://ya.ru/back2.jpg); color: red"></div>
+    <div class="img" style="background: red url('/back3.jpg') no-repeat"></div>
+    <div class="img" style="background: red url('https://ya.ru/back3.jpg') no-repeat"></div>
+    <img src="/normal2.jpg" style="background-image: url(/not-normal.jpg)" />
+    
+    </div>
+</div>
+</body>
+</html>
+
+HTML,
+
+    'https://test/doubles' => <<<'HTML'
+<!DOCTYPE html>
+<html>
+<body>
+
+
+
+<div id="container">
+
+    <div id="text">
+    
+    <h1>дубли</h1>
+    <p>описание дубли</p>
+    <img src="/double.jpg">
+    Оригинальный текст новости
+    
+    <img src="/ava.jpg">
+    <img src="/double.jpg">
+    <h2>дубли</h2>
+    <img src="/double.jpg">
+    <img src="/double2.jpg">
+    <img src="/double.jpg">
+    текст
+    
+    <img src="/double2.jpg">
+    </div>
+</div>
+</body>
+</html>
+
+HTML,
+
+
+    'https://test/element-text-insert' => <<<'HTML'
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2 id="insert1">
 Вставляемый <strong>текст</strong> извне
 </h2>
 
-<img id="before2" src="/before.jpg" />
+<img id="insert2" src="/insert.jpg" />
 
-<div id="before3">
+<div id="insert3">
     <div>
         <h2>Заголовок извне №3</h2>
         <p>текст извне №3</p>
@@ -88,7 +269,7 @@ HTML,
 
 <div id="container">
 
-    <div id="title">element-text-before</div>
+    <div id="title">element-text-insert</div>
     <div id="text">
     
     Оригинальный текст новости
@@ -412,7 +593,7 @@ HTML
 	<title>Тестоваая новость 1</title>
 	<author>fingli</author>
 	<pubDate>Thu, 15 Oct 2020 23:31:38 +0400</pubDate>
-	<link>https://test/element-text-before</link>
+	<link>https://test/element-text-insert</link>
 	<link1>https://test/mutants</link1>
 	<link1>https://test/news-bolvanka1</link1>
 	<enclosure url="/test.jpg" type="image/jpeg"></enclosure>
@@ -434,8 +615,33 @@ HTML
 <html>
 <body>
 <div id="container">
-<a href="https://test/news-bolvanka">bolvan-simple</a>
-<a href="https://test/news-bolvanka-404">bolvan-404</a>
+<div class="item">
+    <a href="https://test/text-items">отступы</a>
+</div>
+<div class="item1">
+    <a href="https://test/spaces">отступы</a>
+</div>
+<div class="item1">
+    <a href="https://test/desc-vs-text">дескр против текста</a>
+    <div class="desc">тот же самый дескр.</div>
+</div>
+<div class="item1">
+    <a href="https://test/spaces-in-attr">пробелы в атрибутах</a>
+    <img1 src="/ava.jpg" alt="avava"/>
+</div>
+<div class="item1">
+    <div class="desc">картинки из бэка</div>
+    <a href="https://test/image-from-background">картинки из бэка</a>
+    <img1 src="/ava.jpg" alt="avava"/>
+</div>
+<div class="item1">
+    <div class="desc">описание дубли</div>
+    <a href="https://test/doubles">дубли</a>
+    <img src="/ava.jpg" alt="avava"/>
+</div>
+
+
+
 </div>
 </body>
 </html>
@@ -2144,5 +2350,70 @@ _tmr.push({id: "3174698", type: "pageView", start: (new Date()).getTime()});
 HTML
     ,
 
+    'https://test/incorrect1.xml' => <<<'HTML'
+
+
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns="http://backend.userland.com/rss2" xmlns:yandex="http://news.yandex.ru">
+<channel>
+<title>Новости</title>
+<link>https://in-news.ru</link>
+<description></description>
+<lastBuildDate>Thu, 22 Oct 2020 17:32:57 +0500</lastBuildDate>
+<ttl>60</ttl>
+<yandex:logo>https://in-news.ru/bitrix/templates/innews_main/images/yandex_normal_logo.png</yandex:logo>
+<yandex:logo type="square">https://in-news.ru/bitrix/templates/innews_main/images/yandex_square_logo.png</yandex:logo>
+
+
+<item>
+	<title>ЭКСКЛЮЗИВ. С 23 октября в Сургуте откроются круглосуточные кабинеты для КТ-исследований</title>
+	<link>https://in-news.ru/news/zdorovie/eksklyuziv-s-23-sentyabrya-v-surgute-otkroyutsya-kruglosutochnye-kabinety-dlya-kt-issledovaniy.html</link>
+	<description>Обследование там смогут пройти горожане с подтвержденным коронавирусом и тех, у кого есть симптомы болезни</description>
+	
+		
+		<enclosure url="https://in-news.ru/upload/iblock/17d/17dee63eb1b03bf25aa52eda47548d9c.jpg" length="36976" type="image/jpeg"/>
+				<category>Здоровье</category>
+				<yandex:full-text>&lt;p&gt;
+	 С 23 октября в Сургуте заработают круглосуточные кабинеты неотложной помощи для больных коронавирусом, и тех, у кого есть симптомы новой инфекции. Там же в случае необходимости можно будет выполнить КТ-исследование легких. На работу 24 на 7 перейдут кабинеты в поликлиниках номер один, два и четыре. Об этом телеканалу «Сургут 24» сообщил главный врач первой ГП&lt;b&gt; Максим Слепов.&lt;/b&gt;&lt;b&gt; «Это будет сделано для того, чтобы разгрузить приемное отделение Сургутской окружной клинической больницы»&lt;/b&gt;, - отметил он. Говоря о причинах такого решения руководитель окружного департамента здравоохранения &lt;b&gt;Алексей Добровольский&lt;/b&gt; отметил повышение эффективности и скорости постановки диагнозов. В случае необходимости госпитализировать пациентов с ковид-19 тоже будут быстрее, потому как весь комплекс исследований для этого уже будет выполнен.
+&lt;/p&gt;
+&lt;p&gt;
+	&lt;b&gt;«Мы сегодня видим не очень большую нагрузку на эти компьютерные томографы в поликлиниках. 30, 25, 40 исследований – это полторы, даже не две смены работы КТ. Но с учетом того, что это неравномерно, это невозможно распланировать от минуты к минуте, от часа к часу, поэтому нам эффективнее перевести их в режим работы 24/7. Неделя, две, три, четыре, я думаю, и вернемся к тому моменту, когда сможем это решение откатить», &lt;/b&gt;– рассказал директор департамента здравоохранения Алексей Добровольский.
+&lt;/p&gt;</yandex:full-text>
+		<pubDate>Thu, 22 Oct 2020 16:40:00 +0500</pubDate>
+</item>
+
+
+</channel>
+</rss>
+
+
+
+HTML,
+    'https://test/incorrect2.xml' => <<<'HTML'
+
+<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <language>ru</language>
+    <title>Братская студия телевидения - новости Братска</title>
+    <description>Новости города Братска и Иркутской области</description>
+    <link>https://bst.bratsk.ru</link>
+    <yandex:logo>https://bst.bratsk.ru/bstlogo.png</yandex:logo>
+    <item>
+      <title>Иркутянин варит сыры с сибирской изюминкой</title>
+      <link>https://bst.bratsk.ru/news/43221</link>
+      <pdalink>https://bst.bratsk.ru/news/43221</pdalink>
+      <pubDate>Fri, 23 Oct 2020 18:45:00 +0800</pubDate>
+      <description>&lt;p&gt;&lt;/p&gt;&lt;p&gt;Его любят и взрослые, и дети. А ещё он полезен для здоровья. Но мало, кто знает, как его создают. Сейчас речь пойдёт о сыре. Иркутянин не только наладил производство ценного продукта, но и использует в своём деле необычные рецепты&lt;/p&gt;
+</description>
+    </item>
+
+
+
+</channel>
+</rss>
+
+
+
+HTML,
 
 ];
